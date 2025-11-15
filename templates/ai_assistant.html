@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent - Workspace</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/14.1.0/markdown-it.min.js" 
+            integrity="sha512-9KbkE+0e+gAHiI8S5PdD231Kj6P8Z2SNoVVSzJ1O/U0f6/yM2I/O9I/LpSt2x/Dv+agbn0i0I/YT1WJ/1/hQ==" 
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <script src="https://unpkg.com/htmx.org@1.9.10" 
+            integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC" 
+            crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --bg-tertiary: #efefef;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --border-color: #e0e0e0;
+            --accent: #0070f3;
+            --sidebar-icon-bar: #fbfbfb;
+            --sidebar-bg: #ffffff;
+            --chat-bg: #ffffff;
+            --message-user: #0070f3;
+            --message-assistant: #f0f0f0;
+        }
+
+        body.dark-mode {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #999999;
+            --border-color: #333333;
+            --sidebar-icon-bar: #151515;
+            --sidebar-bg: #0a0a0a;
+            --chat-bg: #1a1a1a;
+            --message-user: #0070f3;
+            --message-assistant: #2a2a2a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- New Header (matches screenshot) --- */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            background-color: var(--bg-primary);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .header-left, .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .logo {
+            font-size: 1.25rem; font-weight: 600; color: var(--text-primary);
+            text-decoration: none; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .logo svg { width: 22px; height: 22px; }
+        .plan-badge {
+            font-size: 0.8rem; font-weight: 500;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            padding: 0.25rem 0.6rem;
+            border-radius: 0.4rem;
+        }
+        .btn-upgrade {
+            font-size: 0.9rem; font-weight: 500; color: var(--accent);
+            text-decoration: none;
+        }
+        .theme-toggle {
+            background: none; border: none; font-size: 1.5rem;
+            cursor: pointer; color: var(--text-primary);
+        }
+
+        /* --- NEW PROFILE DROPDOWN (FROM SCREENSHOT) --- */
+        .profile-area {
+            position: relative;
+        }
+        .profile-button {
+            width: 32px; height: 32px; border-radius: 50%;
+            background-color: var(--accent);
+            color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 600;
+            cursor: pointer;
+            border: 2px solid var(--border-color);
+        }
+        .profile-dropdown-menu {
+            display: none; /* Hidden by default */
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            width: 320px;
+            background-color: var(--bg-primary); /* Changed from chat-bg */
+            border: 1px solid var(--border-color);
+            border-radius: 0.8rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            z-index: 101;
+            padding: 0.5rem;
+        }
+        .profile-dropdown-menu.visible {
+            display: block;
+        }
+        .profile-section {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .profile-section:last-child { border-bottom: none; }
+        .profile-email {
+            font-size: 0.9rem; font-weight: 500;
+            color: var(--text-primary);
+            padding: 0.5rem 0.5rem 1rem 0.5rem;
+            word-break: break-all;
+        }
+        .profile-menu-list { list-style: none; }
+        .profile-menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.5rem;
+            border-radius: 0.4rem;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .profile-menu-item:hover {
+            background-color: var(--bg-secondary);
+        }
+        .profile-menu-item-left {
+            display: flex; align-items: center; gap: 0.75rem;
+        }
+        .profile-menu-item svg {
+            width: 20px; height: 20px;
+            color: var(--text-secondary);
+        }
+        .profile-menu-item .external-link-icon {
+            width: 16px; height: 16px; color: var(--text-secondary);
+        }
+        .credit-balance-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem 1rem;
+            padding: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .credit-label { color: var(--text-secondary); }
+        .credit-value { text-align: right; font-weight: 500; }
+        .profile-upgrade-link {
+            font-size: 0.9rem;
+            color: var(--accent);
+            text-decoration: none;
+            padding: 0.5rem;
+            display: block;
+        }
+        .profile-upgrade-link:hover { text-decoration: underline; }
+
+        /* --- Workspace (REMOVED ICON BAR) --- */
+        .workspace-container {
+            display: flex;
+            flex-grow: 1; 
+            overflow: hidden;
+        }
+        
+        /* Column 2: Sidebar */
+        .sidebar {
+            width: 280px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            gap: 1.5rem;
+        }
+        .btn-new-chat {
+            width: 100%;
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            padding: 0.75rem 1rem;
+            border-radius: 0.4rem;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            text-align: left;
+            transition: background-color 0.2s;
+        }
+        .btn-new-chat:hover { background-color: var(--border-color); }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 0.25rem; }
+        .sidebar-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.6rem 1rem; background: none; border: none;
+            color: var(--text-primary); cursor: pointer; text-align: left;
+            border-radius: 0.4rem; transition: background-color 0.2s;
+            font-size: 0.95rem;
+        }
+        .sidebar-item svg {
+            width: 16px; height: 16px; color: var(--text-secondary);
+        }
+        .sidebar-item:hover { background-color: var(--bg-tertiary); }
+        .sidebar-item-label { font-size: 0.8rem; font-weight: 600;
+            color: var(--text-secondary); padding: 0.5rem 1rem; margin-top: 1rem; }
+
+        /* Column 3: Main Chat Area */
+        .chat-area {
+            flex: 1; display: flex; flex-direction: column;
+            background-color: var(--bg-primary); 
+            overflow-y: auto; /* This whole column scrolls */
+        }
+        .chat-messages {
+            flex-grow: 1; /* This makes the chat history grow */
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            max-width: 900px; width: 100%; margin: 0 auto;
+        }
+        
+        .hero-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-height: 50vh;
+            padding-bottom: 10vh;
+        }
+        .hero-placeholder h1 {
+            font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;
+        }
+        .hero-placeholder p {
+            font-size: 1.1rem; color: var(--text-secondary);
+        }
+
+        .message { display: flex; gap: 1rem; max-width: 100%; }
+        .message.user { align-self: flex-end; flex-direction: row-reverse; }
+        .message.assistant { align-self: flex-start; }
+        .message-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; color: white; flex-shrink: 0;
+        }
+        .message.user .message-avatar { background-color: var(--accent); }
+        .message.assistant .message-avatar { background-color: #667eea; }
+        
+        .message-content {
+            padding: 1rem; border-radius: 0.6rem;
+            word-wrap: break-word; overflow-x: auto; max-width: 100%;
+        }
+        .message-content pre {
+            background-color: var(--bg-secondary); border: 1px solid var(--border-color);
+            border-radius: 8px; padding: 1rem; overflow-x: auto;
+            font-family: monospace; font-size: 0.9rem;
+        }
+        .message-content code { font-family: monospace; }
+        .message-content p:last-child { margin-bottom: 0; }
+        .message-content p { margin-bottom: 1rem; }
+        .message-content ul, .message-content ol {
+            list-style: revert; margin-left: 1.5rem; margin-bottom: 1rem;
+        }
+        .message.user .message-content { background-color: var(--message-user); color: white; }
+        .message.user .message-content pre {
+             background-color: #005fcc; border-color: #0070f3;
+             font-family: inherit; white-space: pre-wrap; color: white;
+        }
+        .message.assistant .message-content { background-color: var(--message-assistant); }
+        
+        .cost-message {
+            text-align: center; font-size: 0.75rem;
+            color: var(--text-secondary); opacity: 0.7; margin: -0.5rem 0;
+        }
+        .blinking-cursor {
+            display: inline-block; width: 8px; height: 1.2rem;
+            background-color: var(--text-primary);
+            animation: blink 1s step-end infinite; margin-left: 4px;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .chat-input-area {
+            padding: 1.5rem;
+            background-color: var(--bg-primary);
+            position: sticky;
+            bottom: 0;
+        }
+        .chat-input-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--bg-primary); /* Use primary bg */
+            border: 1px solid var(--border-color);
+            border-radius: 0.8rem;
+            padding: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .chat-input-wrapper:focus-within {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 112, 243, 0.1);
+        }
+        #prompt-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .chat-input {
+            flex: 1; background: none; border: none; outline: none;
+            color: var(--text-primary); font-family: inherit; font-size: 1rem;
+            resize: none; max-height: 200px;
+        }
+        .chat-input::placeholder { color: var(--text-secondary); }
+        
+        .chat-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+        .chat-tools { display: flex; gap: 0.5rem; }
+        .tool-btn {
+            background: none; border: none; font-size: 1.25rem;
+            cursor: pointer; color: var(--text-secondary);
+            transition: color 0.2s;
+            width: 24px; height: 24px;
+        }
+        .tool-btn:hover { color: var(--accent); }
+        .tool-btn svg { width: 100%; height: 100%; }
+        
+        .chat-send-btn {
+            background-color: var(--accent); color: white; border: none;
+            padding: 0.6rem 1.2rem; border-radius: 0.4rem;
+            cursor: pointer; font-weight: 500;
+            transition: opacity 0.2s;
+        }
+        .chat-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request .htmx-indicator-invert { display: none; }
+
+        /* Column 4: Preview Area (HIDDEN BY DEFAULT) */
+        .preview-area {
+            display: none; 
+            width: 50%;
+            border-left: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            flex-direction: column; color: var(--text-secondary);
+            overflow-y: auto;
+        }
+        .preview-header {
+            padding: 1rem;
+            background-color: var(--bg-primary);
+            border-bottom: 1px solid var(--border-color);
+            width: 100%;
+            font-weight: 600;
+        }
+        .preview-iframe {
+            width: 100%; height: 100%;
+            border: none; background-color: white;
+        }
+        
+        /* Community Section Wrapper */
+        .community-section-wrapper {
+            flex-grow: 1;
+            overflow-y: auto;
+            background-color: var(--bg-secondary);
+            display: flex;
+            flex-direction: row;
+        }
+
+        .community-section-content {
+             width: 100%;
+            padding: 4rem 2rem;
+            background-color: var(--bg-secondary);
+        }
+        .community-header {
+            max-width: 900px;
+            margin: 0 auto; 
+            display: flex;
+            justify-content: space-between; align-items: center;
+            margin-bottom: 2rem;
+        }
+        .community-header h2 { font-size: 1.5rem; font-weight: 700; }
+        .browse-all {
+            color: var(--accent); text-decoration: none; display: flex;
+            align-items: center; gap: 0.5rem; transition: gap 0.2s;
+        }
+        .browse-all:hover { gap: 0.8rem; }
+        .community-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem; max-width: 900px; margin: 0 auto;
+        }
+        .community-card {
+            background-color: var(--bg-primary); /* Use primary bg */
+            border-radius: 0.8rem;
+            overflow: hidden; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color); /* Add border */
+        }
+        .community-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+        .card-image {
+            width: 100%; height: 150px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 2rem;
+        }
+        .card-image.card-1 { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); color: #333; }
+        .card-image.card-2 { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); }
+        .card-image.card-3 { background: linear-gradient(135deg, #134e5e 0%, #71b280 100%); }
+        .card-content { padding: 1.5rem; }
+        .card-content h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+        .card-content p { color: var(--text-secondary); font-size: 0.9rem; }
+
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .preview-area { display: none !important; }
+            .community-section-wrapper { flex-grow: 1; display: flex; }
+            .chat-area { flex-grow: 1; }
+            .community-section-content { display: none; }
+        }
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .sidebar-toggle { display: none; }
+            .header { padding: 0.75rem 1rem; }
+            .logo { font-size: 1.25rem; }
+            .btn-link, .btn-upgrade { padding: 0.5rem; font-size: 0.9rem; }
+        }
+        @media (max-width: 640px) {
+            .nav-menu { display: none; }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+    </style>
+</head>
+<body class="h-full"> <header class="header">
+        <div class="header-left">
+            <a href="{{ url_for('chat_interface') }}" class="logo">AI Agent</a>
+            <span class="plan-badge">Free</span>
+            <a href="{{ url_for('pricing_page') }}" class="btn-upgrade">Upgrade</a>
+        </div>
+        
+        <div class="header-right">
+            <button class="theme-toggle" onclick="toggleTheme(event)">🌙</button>
+            
+            <div class="profile-area">
+                <button class="profile-button" id="profile-button">
+                    {% if current_user and current_user.email %}
+                        {{ current_user.email[0]|upper }}
+                    {% else %}
+                        U
+                    {% endif %}
+                </button>
+                
+                <div class="profile-dropdown-menu" id="profile-dropdown">
+                    <div class="profile-section">
+                        <div class="profile-email">
+                            {% if current_user and current_user.email %}
+                                {{ current_user.email }}
+                            {% else %}
+                                user@example.com
+                            {% endif %}
+                        </div>
+                        <ul class="profile-menu-list">
+                            <li>
+                                <a href="#" class="profile-menu-item">
+                                    <div class="profile-menu-item-left">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                                        <span>Profile</span>
+                                    </div>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="profile-menu-item">
+                                    <div class="profile-menu-item-left">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73v.18a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                        <span>Settings</span>
+                                    </div>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{{ url_for('pricing_page') }}" class="profile-menu-item">
+                                    <div class="profile-menu-item-left">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                                        <span>Pricing</span>
+                                    </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="external-link-icon"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="profile-menu-item">
+                                    <div class="profile-menu-item-left">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                                        <span>Documentation</span>
+                                    </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="external-link-icon"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" class="profile-menu-item">
+                                    <div class="profile-menu-item-left">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg>
+                                        <span>Community Forum</span>
+                                    </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="external-link-icon"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="profile-section">
+                        <div class="credit-balance-grid">
+                            <span class="credit-label">Credit Balance</span>
+                            <span class="credit-label" style="text-align: right;">
+                                5.00
+                            </span>
+                            <span class="credit-label">Gifted credits</span>
+                            <span class="credit-value">0.00</span>
+                            <span class="credit-label">Monthly credits</span>
+                            <span class="credit-value" id="credit-balance-dropdown">
+                                {% if user_credits %}
+                                    {{ "%.2f"|format(user_credits|float) }}
+                                {% else %}
+                                    5.00
+                                {% endif %}
+                            </span>
+                        </div>
+                        <a href="{{ url_for('pricing_page') }}" class="profile-upgrade-link">Upgrade your plan to buy more credits. <u>Upgrade plan</u></a>
+                    </div>
+                    <div class="profile-section">
+                        <a href="{{ url_for('logout') }}" class="profile-menu-item">
+                            <div class="profile-menu-item-left">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                                <span>Logout</span>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="workspace-container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-profile">
+                <div class="sidebar-profile-avatar">
+                    {% if current_user and current_user.email %}
+                        {{ current_user.email[0]|upper }}
+                    {% else %}
+                        U
+                    {% endif %}
+                </div>
+                <div class="sidebar-profile-info">
+                    <div class="sidebar-profile-name">
+                        {% if current_user and current_user.email %}
+                            {{ current_user.email }}
+                        {% else %}
+                            user@example.com
+                        {% endif %}
+                    </div>
+                    <div class="sidebar-profile-plan">Free Plan</div>
+                </div>
+            </div>
+
+            <button class="new-chat-btn" onclick="window.location.reload()">+ New Chat</button>
+
+            <div class="sidebar-search">
+                <input type="text" placeholder="Search chats...">
+            </div>
+
+            <div class="sidebar-menu">
+                <div class="sidebar-menu-section">
+                    <div class="sidebar-menu-label">Recent</div>
+                    </div>
+            </div>
+        </aside>
+
+        <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle sidebar">‹</button>
+
+        <div class="chat-wrapper" id="chat-wrapper">
+            <div class="chat-area">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="hero-placeholder" id="hero-placeholder">
+                        <h1>Welcome to your AI Agent</h1>
+                        <p>Start a new conversation by typing below.</p>
+                    </div>
+                </div>
+                
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <form id="prompt-form">
+                            <textarea 
+                                id="chatInput" 
+                                class="chat-input" 
+                                placeholder="Ask v0 to build..."
+                                oninput="autoResize(this)"
+                                onkeydown="handleChatKeypress(event)"
+                            ></textarea>
+                            
+                            <div class="chat-actions">
+                                <div class="chat-tools">
+                                    <label for="file-upload" class="tool-btn" title="Attach File">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M5 12h14"></path><path d="M12 5v14"></path>
+                                        </svg>
+                                    </label>
+                                    <input type="file" id="file-upload" style="display: none;">
+                                </div>
+                                <button type="submit" class="chat-send-btn" id="submit-button">
+                                    <span class="htmx-indicator">
+                                        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style="width: 16px; height: 16px;">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </span>
+                                    <span class="htmx-indicator-invert">↑</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div> <div class="preview-area" id="preview-area">
+                <div class="preview-header">
+                    Preview
+                </div>
+                <iframe id="preview-iframe" class="preview-iframe"></iframe>
+            </div>
+            
+        </div> </div>
+
+<script>
+    // --- STATE & CONFIG ---
+    const appState = {
+        isLoading: false,
+        hasChatted: false,
+        freeTierAmount: 5.0 
+    };
+    let md; // Will be initialized on window load
+
+    // --- DOM ELEMENTS (safe-guarded) ---
+    let chatMessages, promptForm, chatInput, submitButton, creditBalanceEl, 
+        heroPlaceholder, previewArea, previewIframe, fileUploadInput, 
+        profileButton, profileDropdown, sidebar, sidebarToggle;
+
+    // --- HELPER FUNCTIONS ---
+    function addMessageToChat(role, text, isLoading = false) {
+        if (!chatMessages) return null;
+        
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `message ${role}`;
+        let avatar, messageContent;
+        
+        const sanitizedText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        if (role === 'user') {
+            avatar = `<div class="message-avatar" style="background-color: var(--accent);">U</div>`;
+            messageContent = `<div class="message-content"><pre style="font-family: inherit; white-space: pre-wrap; color: white;">${sanitizedText}</pre></div>`;
+        } else if (role === 'assistant') {
+            avatar = `<div class="message-avatar" style="background-color: #667eea;">AI</div>`;
+            messageContent = `<div class="message-content">
+                                ${isLoading ? '<div class="blinking-cursor"></div>' : text}
+                             </div>`;
+        } else {
+            messageWrapper.innerHTML = `<div class="cost-message">${sanitizedText}</div>`;
+            chatMessages.appendChild(messageWrapper);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return null;
+        }
+        messageWrapper.innerHTML = `${avatar} ${messageContent}`;
+        chatMessages.appendChild(messageWrapper);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return messageWrapper.querySelector('.message-content');
+    }
+    
+    function renderPreview(aiMessageEl) {
+        if (!aiMessageEl) return;
+        
+        const codeBlocks = aiMessageEl.querySelectorAll('pre > code');
+        let htmlCode = null;
+        
+        codeBlocks.forEach(block => {
+            const content = block.textContent.trim();
+            if (block.className.includes('language-html') || (content.startsWith('<!DOCTYPE') || content.startsWith('<html'))) {
+                htmlCode = content;
+            }
+        });
+
+        if (htmlCode && previewArea && previewIframe) {
+            previewArea.style.display = 'flex'; 
+            previewIframe.srcdoc = htmlCode;
+        }
+    }
+
+    function updateCredits(newBalance, cost) {
+        if (creditBalanceEl) {
+            creditBalanceEl.textContent = `${parseFloat(newBalance).toFixed(2)}`;
+        }
+        if (cost > 0) {
+             addMessageToChat('system', `(Request Cost: ${cost.toFixed(4)} Credits)`);
+        }
+    }
+
+    function setLoading(isLoading) {
+        appState.isLoading = isLoading;
+        if (submitButton) {
+            submitButton.disabled = isLoading;
+            if (isLoading) {
+                submitButton.classList.add('htmx-request');
+            } else {
+                submitButton.classList.remove('htmx-request');
+            }
+        }
+    }
+    
+    function handleChatKeypress(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            if (promptForm) promptForm.requestSubmit();
+        }
+    }
+    
+    function autoResize(element) {
+        if (element) {
+            element.style.height = 'auto';
+            element.style.height = (element.scrollHeight) + 'px';
+        }
+    }
+
+    // --- Sidebar and Theme (From your mockup) ---
+    function initSidebar() {
+        if (sidebar) {
+            const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            if (sidebarCollapsed) {
+                sidebar.classList.add('collapsed');
+            }
+        }
+    }
+
+    function toggleSidebar() {
+        if (sidebar) {
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+        }
+    }
+
+    function toggleTheme(event) {
+        if (event) {
+            event.stopPropagation(); // Prevent event bubbling
+        }
+        
+        document.body.classList.toggle('dark-mode');
+        const isDarkMode = document.body.classList.contains('dark-mode');
+        const themeButton = document.querySelector('.theme-toggle');
+        if (themeButton) {
+            themeButton.textContent = isDarkMode ? '☀️' : '🌙';
+        }
+        localStorage.setItem('darkMode', isDarkMode.toString());
+    }
+
+    // --- THIS IS THE MODIFIED FUNCTION ---
+    function initTheme() {
+        const themeButton = document.querySelector('.theme-toggle');
+        // Check if explicitly set to LIGHT mode
+        if (localStorage.getItem('darkMode') === 'false') {
+            document.body.classList.remove('dark-mode');
+            if (themeButton) themeButton.textContent = '🌙';
+        } else {
+            // Default to DARK mode (for 'true', null, or undefined)
+            document.body.classList.add('dark-mode');
+            if (themeButton) themeButton.textContent = '☀️';
+        }
+    }
+    
+    // --- CORE API LOGIC ---
+    async function sendPromptToBackend(prompt) {
+        setLoading(true);
+        const aiMessageEl = addMessageToChat('assistant', '', true);
+        if (previewArea) previewArea.style.display = 'none'; 
+
+        try {
+            const response = await fetch('/api/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: prompt })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                if (errorData.balance) {
+                    updateCredits(errorData.balance, errorData.cost);
+                }
+                throw new Error(errorData.error || `Error ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            if (md) {
+                const renderedHtml = md.render(data.answer);
+                aiMessageEl.innerHTML = renderedHtml;
+                renderPreview(aiMessageEl);
+            } else {
+                aiMessageEl.textContent = data.answer; // Fallback
+            }
+            
+            updateCredits(data.credits_remaining, data.cost);
+            
+        } catch (error) {
+            if(aiMessageEl) aiMessageEl.innerHTML = `<p style="color: #f87171;"><strong>Error:</strong> ${error.message}</p>`;
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // --- INITIALIZATION ---
+    window.addEventListener('load', () => {
+        // **FIX for markdownit error:** Initialize markdown-it *first*
+        try {
+            md = window.markdownit({
+                html: true,
+                linkify: true,
+                typographer: true
+            });
+        } catch (e) {
+            console.error("Markdown-it failed to load:", e);
+            md = { render: (text) => text.replace(/</g, "&lt;").replace(/>/g, "&gt;") };
+        }
+        
+        // Assign DOM elements
+        chatMessages = document.getElementById('chatMessages');
+        promptForm = document.getElementById('prompt-form');
+        chatInput = document.getElementById('chatInput');
+        submitButton = document.getElementById('submit-button');
+        creditBalanceEl = document.getElementById('credit-balance-dropdown');
+        heroPlaceholder = document.getElementById('hero-placeholder');
+        previewArea = document.getElementById('preview-area');
+        previewIframe = document.getElementById('preview-iframe');
+        fileUploadInput = document.getElementById('file-upload');
+        profileButton = document.getElementById('profile-button');
+        profileDropdown = document.getElementById('profile-dropdown');
+        sidebar = document.getElementById('sidebar');
+        sidebarToggle = document.getElementById('sidebarToggle');
+        
+        // Initialize systems
+        initSidebar();
+        initTheme(); // <-- This will now apply dark mode by default
+        
+        // Initialize htmx spinner
+        if (typeof htmx !== 'undefined' && submitButton) {
+            htmx.process(submitButton); 
+        }
+
+        // Add form listener
+        if (promptForm) {
+            promptForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (appState.isLoading) return;
+                
+                const prompt = chatInput.value.trim();
+                if (prompt) {
+                    if (!appState.hasChatted) {
+                        heroPlaceholder.style.display = 'none';
+                        appState.hasChatted = true;
+                    }
+                    addMessageToChat('user', prompt);
+                    sendPromptToBackend(prompt);
+                    chatInput.value = '';
+                    autoResize(chatInput);
+                }
+            });
+        }
+        
+        // Add file upload listener
+        if (fileUploadInput) {
+            fileUploadInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log("File selected:", file.name);
+                    addMessageToChat('system', `Attached file: ${file.name}`);
+                }
+            });
+        }
+
+        // Add profile dropdown listener
+        if (profileButton && profileDropdown) {
+            profileButton.addEventListener('click', (e) => {
+                e.stopPropagation(); 
+                profileDropdown.classList.toggle('visible');
+            });
+
+            window.addEventListener('click', (e) => {
+                const themeToggle = document.querySelector('.theme-toggle');
+                // Check if click is NOT on profile, AND NOT on theme toggle
+                if (themeToggle && !profileButton.contains(e.target) && 
+                    !profileDropdown.contains(e.target) &&
+                    !themeToggle.contains(e.target)) {
+                    profileDropdown.classList.remove('visible');
+                }
+            });
+        }
+
+        // This initializes the credit display.
+        if (creditBalanceEl) {
+            const initialCreditsText = creditBalanceEl.textContent.trim();
+            let initialCredits = parseFloat(initialCreditsText);
+            
+            // This check is now safe
+            if (isNaN(initialCredits) || initialCreditsText.includes("{")) {
+                initialCredits = appState.freeTierAmount; 
+            }
+            
+            creditBalanceEl.textContent = `${initialCredits.toFixed(2)}`;
+        }
+    });
+</script>
+</body>
+</html>

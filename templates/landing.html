@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v0 - AI-Powered UI Generator</title>
+    <style>
+        /* --- [This is the v0.dev CSS you provided] --- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --bg-tertiary: #efefef;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --border-color: #e0e0e0;
+            --accent: #0070f3;
+            --sidebar-bg: #fafafa;
+            --chat-bg: #ffffff;
+            --message-user: #0070f3;
+            --message-assistant: #f0f0f0;
+        }
+
+        body.dark-mode {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #999999;
+            --border-color: #333333;
+            --accent: #0070f3;
+            --sidebar-bg: #151515;
+            --chat-bg: #1a1a1a;
+            --message-user: #0070f3;
+            --message-assistant: #2a2a2a;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Header Styles */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            background-color: var(--bg-primary);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .nav-menu {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-menu a {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+
+        .nav-menu a:hover {
+            color: var(--accent);
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn-signin {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.95rem;
+            padding: 0.5rem 1rem;
+            transition: color 0.2s;
+            text-decoration: none; /* Make <a> look like <button> */
+        }
+
+        .btn-signin:hover {
+            color: var(--accent);
+        }
+
+        .btn-signup {
+            background-color: var(--text-primary);
+            color: var(--bg-primary);
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.4rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.2s;
+            text-decoration: none; /* Make <a> look like <button> */
+        }
+
+        .btn-signup:hover {
+            background-color: var(--text-secondary);
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+
+        /* Main Container - Landing Page */
+        .landing-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 70px); /* 70px is header height */
+            padding: 2rem;
+            background-color: var(--bg-primary);
+        }
+
+        .hero-section {
+            text-align: center;
+            max-width: 800px;
+            margin-bottom: 3rem;
+        }
+
+        .hero-section h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+
+        .hero-section p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .prompt-box {
+            width: 100%;
+            max-width: 900px;
+            background-color: var(--chat-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.8rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .prompt-input {
+            background: none;
+            border: none;
+            outline: none;
+            font-size: 1rem;
+            color: var(--text-primary);
+            resize: none;
+            font-family: inherit;
+            min-height: 60px;
+        }
+
+        .prompt-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .prompt-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+
+        .prompt-plus {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: color 0.2s;
+        }
+
+        .prompt-plus:hover {
+            color: var(--accent);
+        }
+
+        .prompt-submit {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.4rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        .prompt-submit:hover {
+            opacity: 0.8;
+        }
+
+        /* Community Section */
+        .community-section {
+            width: 100%;
+            padding: 4rem 2rem;
+            background-color: var(--bg-secondary);
+            margin-top: 2rem;
+        }
+
+        .community-header {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .community-header h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .browse-all {
+            color: var(--accent);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: gap 0.2s;
+        }
+
+        .browse-all:hover {
+            gap: 0.8rem;
+        }
+
+        .community-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .community-card {
+            background-color: var(--chat-bg);
+            border-radius: 0.8rem;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        .community-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2rem;
+        }
+        .card-image.card-1 { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); color: #333; }
+        .card-image.card-2 { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); }
+        .card-image.card-3 { background: linear-gradient(135deg, #134e5e 0%, #71b280 100%); }
+
+        .card-content { padding: 1.5rem; }
+        .card-content h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+        .card-content p { color: var(--text-secondary); font-size: 0.95rem; }
+        
+        @media (max-width: 768px) {
+            .hero-section h1 { font-size: 2rem; }
+            .nav-menu { gap: 1rem; }
+            .header { padding: 0.75rem 1rem; }
+        }
+        @media (max-width: 640px) {
+            .hero-section h1 { font-size: 1.5rem; }
+            .nav-menu { display: none; }
+            .prompt-box { max-width: 100%; }
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+    </style>
+</head>
+<!-- **FIX 1:** Added 'dark-mode' as default -->
+<body class="dark-mode">
+    <!-- Header -->
+    <header class="header">
+        <a href="{{ url_for('index') }}" class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12h18M3 6h18M3 18h18"></path>
+            </svg>
+            AI Agent
+        </a>
+        <nav class="nav-menu">
+            <a href="#">Templates</a>
+            <a href="#">Enterprise</a>
+            <a href="{{ url_for('login') }}">Pricing</a> 
+            <a href="#">FAQ</a>
+        </nav>
+        <div class="auth-buttons">
+            <!-- **FIX 2:** Updated button text to '☀️' (light mode) -->
+            <button class="theme-toggle" onclick="toggleTheme(event)">☀️</button>
+            <a href="{{ url_for('login') }}" class="btn-signin">Sign In</a>
+            <a href="{{ url_for('signup') }}" class="btn-signup">Sign Up</a>
+        </div>
+    </header>
+
+    <!-- Landing Page -->
+    <div id="landing" class="landing-container">
+        <div class="hero-section">
+            <h1>What do you want to create?</h1>
+            <p>Start building with a single prompt. No coding needed.</p>
+        </div>
+
+        <div class="prompt-box">
+            <input 
+                type="text" 
+                class="prompt-input" 
+                placeholder="Ask v0 to build..."
+                id="promptInput"
+                onkeypress="handlePromptKeypress(event)"
+            >
+            <div class="prompt-actions">
+                <button class="prompt-plus">+</button>
+                <button class="prompt-submit" onclick="submitPrompt()">↑</button>
+            </div>
+        </div>
+
+        <div class="community-section">
+            <div class="community-header">
+                <div>
+                    <h2>From the Community</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.95rem; margin-top: 0.5rem;">Explore what the community is building with v0.</p>
+                </div>
+                <a href="#" class="browse-all">Browse All →</a>
+            </div>
+
+            <div class="community-grid">
+                <div class="community-card">
+                    <div class="card-image card-1">✨</div>
+                    <div class="card-content">
+                        <h3>Effortless Custom Contract Billing</h3>
+                        <p>Streamline your billing process with automated invoicing.</p>
+                    </div>
+                </div>
+                <div class="community-card">
+                    <div class="card-image card-2">🎭</div>
+                    <div class="card-content">
+                        <h3>I create, therefore I am</h3>
+                        <p>A creative journey exploring artistic expression and identity.</p>
+                    </div>
+                </div>
+                <div class="community-card">
+                    <div class="card-image card-3">🤖</div>
+                    <div class="card-content">
+                        <h3>Unleash the Power of AI Agents</h3>
+                        <p>Advanced AI-powered automation for modern workflows.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // --- **FIX 3:** UPDATED THEME LOGIC ---
+        function toggleTheme(event) {
+            if (event) event.stopPropagation();
+            document.body.classList.toggle('dark-mode');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            const themeButton = document.querySelector('.theme-toggle');
+            if (themeButton) {
+                themeButton.textContent = isDarkMode ? '☀️' : '🌙';
+            }
+            // Save the *opposite* of the default (i.e., save 'light mode')
+            localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+        }
+
+        function initTheme() {
+            const themeButton = document.querySelector('.theme-toggle');
+            // Check if user has *explicitly* set it to 'light'
+            if (localStorage.getItem('theme') === 'light') {
+                document.body.classList.remove('dark-mode');
+                if (themeButton) themeButton.textContent = '🌙';
+            } else {
+                // Default to dark mode
+                document.body.classList.add('dark-mode');
+                if (themeButton) themeButton.textContent = '☀️';
+            }
+        }
+        // --- END OF THEME FIX ---
+
+        
+        function handlePromptKeypress(event) {
+            if (event.key === 'Enter') {
+                submitPrompt();
+            }
+        }
+
+        function submitPrompt() {
+            window.location.href = "{{ url_for('signup') }}";
+        }
+        
+        // Load theme preference on load
+        window.addEventListener('load', initTheme);
+    </script>
+</body>
+</html>
