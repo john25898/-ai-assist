@@ -218,14 +218,23 @@ db_url = os.environ.get("DATABASE_URL")
 if db_url and db_url.startswith("postgresql"):
     # PRODUCTION (Neon)
     print("--- Connecting to PostgreSQL for chat history ---")
+    
     memory_checkpointer = PostgresSaver.from_conn_string(db_url)
+    
+    # We must create all tables *within* the app context
     with app.app_context(), memory_checkpointer as memory_saver:
-        memory_saver.setup()
+        print("--- Creating 'users' table (if not exists) ---")
+        db.create_all() # <-- THIS IS THE FIX. Creates 'users' table.
+        print("--- Creating 'langgraph_checkpoints' table (if not exists) ---")
+        memory_saver.setup() # Creates chat history tables.
         
 else:
     # LOCAL DEVELOPMENT (SQLite)
     print("--- Using 'checkpoints.sqlite' for local chat history ---")
     memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
+    # Also create the 'users' table for local dev
+    with app.app_context():
+        db.create_all()
 
 agent_app = workflow.compile(checkpointer=memory_checkpointer)
 # --- END OF FIX ---
@@ -439,7 +448,6 @@ def pricing_page():
 
 # --- Create Database and Run App ---
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all() 
-    # Use 0.0.0.0 to be accessible on your local network
+    # db.create_all() has been moved up to the checkpointing logic
+    # so it runs in production
     app.run(host='0.0.0.0', port=5000, debug=True)
