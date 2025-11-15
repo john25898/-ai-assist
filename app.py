@@ -25,10 +25,9 @@ from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.graph import StateGraph, END
 
-# --- FIX 1 of 3: Correct imports for Postgres (production) and SQLite (local) ---
+# --- Imports for Postgres (production) and SQLite (local) ---
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
-# --- END OF FIX ---
 
 from typing import TypedDict, Annotated, List, Union
 import operator
@@ -72,7 +71,12 @@ auth0 = oauth.register(
     'auth0',
     client_id=app.config['AUTH0_CLIENT_ID'],
     client_secret=app.config['AUTH0_CLIENT_SECRET'],
-    api_base_url=f"https{app.config['AUTH0_DOMAIN']}", 
+    
+    # --- THIS IS THE FIX ---
+    # Added the missing '://' after 'https'
+    api_base_url=f"https://{app.config['AUTH0_DOMAIN']}", 
+    # --- END OF FIX ---
+    
     access_token_url=f"https://{app.config['AUTH0_DOMAIN']}/oauth/token",
     authorize_url=f"https://{app.config['AUTH0_DOMAIN']}/authorize",
     client_kwargs={
@@ -208,18 +212,13 @@ workflow.set_entry_point("agent_brain")
 workflow.add_conditional_edges("agent_brain", router_edge, {"call_tools": "call_tools", END: END})
 workflow.add_edge("call_tools", "agent_brain")
 
-# --- FIX 2 of 3: Smart Database Checkpointer (FIXED) ---
+# --- Smart Database Checkpointer (FIXED) ---
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgresql"):
     # PRODUCTION (Neon)
     print("--- Connecting to PostgreSQL for chat history ---")
-    
-    # 1. Create the context manager
     memory_checkpointer = PostgresSaver.from_conn_string(db_url)
-    
-    # 2. Use the context manager to get the *actual saver* and call setup()
-    #    This creates the chat history tables in your Neon database
     with app.app_context(), memory_checkpointer as memory_saver:
         memory_saver.setup()
         
@@ -228,7 +227,6 @@ else:
     print("--- Using 'checkpoints.sqlite' for local chat history ---")
     memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
 
-# 3. Pass the *context manager* to compile
 agent_app = workflow.compile(checkpointer=memory_checkpointer)
 # --- END OF FIX ---
 
@@ -441,7 +439,6 @@ def pricing_page():
 
 # --- Create Database and Run App ---
 if __name__ == "__main__":
-    # --- FIX 3 of 3: Fixed typo app.app_static_folder() -> app.app_context() ---
     with app.app_context():
         db.create_all() 
     # Use 0.0.0.0 to be accessible on your local network
