@@ -30,6 +30,8 @@ from langchain_community.tools import DuckDuckGoSearchRun
 # --- Imports for Postgres (production) and SQLite (local) ---
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
+# --- NEW IMPORT FOR STABILITY ---
+from psycopg_pool import ConnectionPool 
 
 from typing import TypedDict, Annotated, List, Union
 import operator
@@ -156,7 +158,6 @@ def ui_builder_tool(prompt: str) -> str:
     return f"[Code Generated (Model: gpt-4o-mini, Input: {usage.get('prompt_tokens', 0)}, Output: {usage.get('completion_tokens', 0)})]:\n{response.content}"
 
 # --- AGENT FRAMEWORK (LangGraph) ---
-# Added web_search_tool to the list
 agent_tools = [ui_builder_tool, web_search_tool]
 llm_brain_with_tools = llm_openai_gpt4o.bind_tools(agent_tools)
 
@@ -224,18 +225,25 @@ workflow.set_entry_point("agent_brain")
 workflow.add_conditional_edges("agent_brain", router_edge, {"call_tools": "call_tools", END: END})
 workflow.add_edge("call_tools", "agent_brain")
 
-# --- Smart Database Checkpointer ---
+# --- Smart Database Checkpointer (FIXED FOR PRODUCTION STABILITY) ---
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgresql"):
     # PRODUCTION (Neon)
     print("--- Connecting to PostgreSQL for chat history ---")
-    memory_checkpointer = PostgresSaver.from_conn_string(db_url)
-    with app.app_context(), memory_checkpointer as memory_saver:
+    
+    # 1. Create a permanent connection pool
+    pool = ConnectionPool(conninfo=db_url, max_size=20, kwargs={"autocommit": True})
+    
+    # 2. Create the saver using the pool
+    memory_checkpointer = PostgresSaver(pool)
+    
+    # 3. Setup tables within app context
+    with app.app_context():
         print("--- Creating 'users' table (if not exists) ---")
         db.create_all() 
         print("--- Creating 'langgraph_checkpoints' table (if not exists) ---")
-        memory_saver.setup() 
+        memory_checkpointer.setup() 
         
 else:
     # LOCAL DEVELOPMENT (SQLite)
