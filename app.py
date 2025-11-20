@@ -17,7 +17,6 @@ from authlib.integrations.flask_client import OAuth
 from openai import OpenAI
 from groq import Groq
 from anthropic import Anthropic
-# --- (Together AI import removed) ---
 
 # --- AGENT FRAMEWORK (LANGCHAIN/LANGGRAPH) ---
 from langchain_openai import ChatOpenAI
@@ -71,12 +70,7 @@ auth0 = oauth.register(
     'auth0',
     client_id=app.config['AUTH0_CLIENT_ID'],
     client_secret=app.config['AUTH0_CLIENT_SECRET'],
-    
-    # --- THIS IS THE FIX ---
-    # Added the missing '://' after 'https'
     api_base_url=f"https://{app.config['AUTH0_DOMAIN']}", 
-    # --- END OF FIX ---
-    
     access_token_url=f"https://{app.config['AUTH0_DOMAIN']}/oauth/token",
     authorize_url=f"https://{app.config['AUTH0_DOMAIN']}/authorize",
     client_kwargs={
@@ -121,7 +115,8 @@ def calculate_credits_to_deduct(total_cost_kes):
     return credit_cost
 
 # --- "WORKER" API FUNCTIONS (Called by Agent or Triage) ---
-@tool
+
+# --- FIX: Removed @tool decorator here so it can be called normally ---
 def call_simple_chat(prompt: str, system_prompt: str = "You are a fast and helpful assistant.") -> dict:
     """
     Call this tool for simple, conversational questions. Returns a dict.
@@ -133,6 +128,7 @@ def call_simple_chat(prompt: str, system_prompt: str = "You are a fast and helpf
         "answer": response.content,
         "usage": {"input_tokens": usage.get('prompt_tokens', 0), "output_tokens": usage.get('completion_tokens', 0)}
     }
+# --- END OF FIX ---
 
 @tool
 def ui_builder_tool(prompt: str) -> str:
@@ -212,7 +208,7 @@ workflow.set_entry_point("agent_brain")
 workflow.add_conditional_edges("agent_brain", router_edge, {"call_tools": "call_tools", END: END})
 workflow.add_edge("call_tools", "agent_brain")
 
-# --- Smart Database Checkpointer (FIXED) ---
+# --- Smart Database Checkpointer ---
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgresql"):
@@ -224,9 +220,9 @@ if db_url and db_url.startswith("postgresql"):
     # We must create all tables *within* the app context
     with app.app_context(), memory_checkpointer as memory_saver:
         print("--- Creating 'users' table (if not exists) ---")
-        db.create_all() # <-- THIS IS THE FIX. Creates 'users' table.
+        db.create_all() 
         print("--- Creating 'langgraph_checkpoints' table (if not exists) ---")
-        memory_saver.setup() # Creates chat history tables.
+        memory_saver.setup() 
         
 else:
     # LOCAL DEVELOPMENT (SQLite)
@@ -237,7 +233,6 @@ else:
         db.create_all()
 
 agent_app = workflow.compile(checkpointer=memory_checkpointer)
-# --- END OF FIX ---
 
 
 def run_agent_workflow(prompt, user_id):
