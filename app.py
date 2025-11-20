@@ -81,7 +81,8 @@ auth0 = oauth.register(
 
 # --- API CLIENT INITIALIZATION ---
 try:
-    llm_groq_llama3 = ChatGroq(model_name='llama3-8b-8192', api_key=os.environ.get('GROQ_API_KEY'))
+    # --- FIX: Updated to new Groq model ---
+    llm_groq_llama3 = ChatGroq(model_name='llama-3.3-70b-versatile', api_key=os.environ.get('GROQ_API_KEY'))
     llm_openai_mini = ChatOpenAI(model='gpt-4o-mini', api_key=os.environ.get('OPENAI_API_KEY'))
     llm_openai_gpt4o = ChatOpenAI(model='gpt-4o', temperature=0, api_key=os.environ.get('OPENAI_API_KEY'))
 except Exception as e:
@@ -91,7 +92,8 @@ except Exception as e:
 YOUR_COST_PER_CREDIT_KES = Decimal('2.00')
 KES_TO_USD_RATE = Decimal('0.0077') 
 API_COSTS_USD = {
-    'llama3-8b': {'input': Decimal('0.05'), 'output': Decimal('0.08')},
+    # --- FIX: Updated pricing key to match new model name ---
+    'llama-3.3-70b-versatile': {'input': Decimal('0.05'), 'output': Decimal('0.08')},
     'gpt-4o-mini': {'input': Decimal('0.15'), 'output': Decimal('0.60')},
     'deepseek-coder-v2': {'input': Decimal('0.14'), 'output': Decimal('0.28')},
     'gpt-4o': {'input': Decimal('2.50'), 'output': Decimal('10.00')}
@@ -116,7 +118,7 @@ def calculate_credits_to_deduct(total_cost_kes):
 
 # --- "WORKER" API FUNCTIONS (Called by Agent or Triage) ---
 
-# --- FIX: Removed @tool decorator here so it can be called normally ---
+# --- FIX: Removed @tool decorator so this can be called as a normal function ---
 def call_simple_chat(prompt: str, system_prompt: str = "You are a fast and helpful assistant.") -> dict:
     """
     Call this tool for simple, conversational questions. Returns a dict.
@@ -266,8 +268,9 @@ def get_task_classification(prompt):
         classification = "complex_agent_task"
     elif "frontend_task" in answer:
         classification = "frontend_task"
+    # --- FIX: Updated model name here too ---
     triage_cost_kes = calculate_cost_in_kes(
-        'llama3-8b', 
+        'llama-3.3-70b-versatile', 
         response_data['usage']['input_tokens'], 
         response_data['usage']['output_tokens']
     )
@@ -296,7 +299,8 @@ def handle_ask():
         if classification == "simple_chat":
             response_data = call_simple_chat(prompt)
             final_answer = response_data["answer"]
-            cost_model = 'llama3-8b'
+            # --- FIX: Updated model name ---
+            cost_model = 'llama-3.3-70b-versatile'
             input_tokens = response_data['usage']['input_tokens']
             output_tokens = response_data['usage']['output_tokens']
             total_cost_kes += calculate_cost_in_kes(cost_model, input_tokens, output_tokens)
@@ -445,4 +449,5 @@ def pricing_page():
 if __name__ == "__main__":
     # db.create_all() has been moved up to the checkpointing logic
     # so it runs in production
+    # --- FIX: Removed extra ')' ---
     app.run(host='0.0.0.0', port=5000, debug=True)
