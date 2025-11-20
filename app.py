@@ -24,6 +24,9 @@ from langchain_groq import ChatGroq
 from langchain.tools import tool
 from langgraph.graph import StateGraph, END
 
+# --- NEW IMPORT: Web Search ---
+from langchain_community.tools import DuckDuckGoSearchRun
+
 # --- Imports for Postgres (production) and SQLite (local) ---
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -81,7 +84,6 @@ auth0 = oauth.register(
 
 # --- API CLIENT INITIALIZATION ---
 try:
-    # --- FIX: Updated to new Groq model ---
     llm_groq_llama3 = ChatGroq(model_name='llama-3.3-70b-versatile', api_key=os.environ.get('GROQ_API_KEY'))
     llm_openai_mini = ChatOpenAI(model='gpt-4o-mini', api_key=os.environ.get('OPENAI_API_KEY'))
     llm_openai_gpt4o = ChatOpenAI(model='gpt-4o', temperature=0, api_key=os.environ.get('OPENAI_API_KEY'))
@@ -92,7 +94,6 @@ except Exception as e:
 YOUR_COST_PER_CREDIT_KES = Decimal('2.00')
 KES_TO_USD_RATE = Decimal('0.0077') 
 API_COSTS_USD = {
-    # --- FIX: Updated pricing key to match new model name ---
     'llama-3.3-70b-versatile': {'input': Decimal('0.05'), 'output': Decimal('0.08')},
     'gpt-4o-mini': {'input': Decimal('0.15'), 'output': Decimal('0.60')},
     'deepseek-coder-v2': {'input': Decimal('0.14'), 'output': Decimal('0.28')},
@@ -118,7 +119,6 @@ def calculate_credits_to_deduct(total_cost_kes):
 
 # --- "WORKER" API FUNCTIONS (Called by Agent or Triage) ---
 
-# --- FIX: Removed @tool decorator so this can be called as a normal function ---
 def call_simple_chat(prompt: str, system_prompt: str = "You are a fast and helpful assistant.") -> dict:
     """
     Call this tool for simple, conversational questions. Returns a dict.
@@ -130,7 +130,16 @@ def call_simple_chat(prompt: str, system_prompt: str = "You are a fast and helpf
         "answer": response.content,
         "usage": {"input_tokens": usage.get('prompt_tokens', 0), "output_tokens": usage.get('completion_tokens', 0)}
     }
-# --- END OF FIX ---
+
+# --- NEW TOOL: Web Search ---
+@tool
+def web_search_tool(query: str) -> str:
+    """
+    Call this tool to search the internet for real-time information, 
+    current events, weather, or facts you don't know.
+    """
+    search = DuckDuckGoSearchRun()
+    return search.invoke(query)
 
 @tool
 def ui_builder_tool(prompt: str) -> str:
@@ -147,7 +156,8 @@ def ui_builder_tool(prompt: str) -> str:
     return f"[Code Generated (Model: gpt-4o-mini, Input: {usage.get('prompt_tokens', 0)}, Output: {usage.get('completion_tokens', 0)})]:\n{response.content}"
 
 # --- AGENT FRAMEWORK (LangGraph) ---
-agent_tools = [ui_builder_tool]
+# Added web_search_tool to the list
+agent_tools = [ui_builder_tool, web_search_tool]
 llm_brain_with_tools = llm_openai_gpt4o.bind_tools(agent_tools)
 
 class AgentState(TypedDict):
@@ -176,23 +186,27 @@ def tool_worker_node(state):
         tool_to_call = None
         if tool_call["name"] == "ui_builder_tool":
             tool_to_call = ui_builder_tool
+        elif tool_call["name"] == "web_search_tool":
+            tool_to_call = web_search_tool
             
         if tool_to_call:
             observation = tool_to_call.invoke(tool_call["args"]) 
-            try:
-                model_name_match = re.search(r"Model: (.*?),", observation)
-                input_tokens_match = re.search(r"Input: (\d+),", observation)
-                output_tokens_match = re.search(r"Output: (\d+)", observation)
+            
+            # Only try to parse tokens if it's the UI builder (Search tool is free)
+            if tool_call["name"] == "ui_builder_tool":
+                try:
+                    model_name_match = re.search(r"Model: (.*?),", observation)
+                    input_tokens_match = re.search(r"Input: (\d+),", observation)
+                    output_tokens_match = re.search(r"Output: (\d+)", observation)
 
-                if model_name_match and input_tokens_match and output_tokens_match:
-                    model = model_name_match.group(1)
-                    input_tokens = int(input_tokens_match.group(1))
-                    output_tokens = int(output_tokens_match.group(1))
-                    total_cost_kes += calculate_cost_in_kes(model, input_tokens, output_tokens)
-                else:
-                    print(f"Could not parse token cost from tool message: {observation}")
-            except Exception as e:
-                print(f"Error parsing token cost: {e}")
+                    if model_name_match and input_tokens_match and output_tokens_match:
+                        model = model_name_match.group(1)
+                        input_tokens = int(input_tokens_match.group(1))
+                        output_tokens = int(output_tokens_match.group(1))
+                        total_cost_kes += calculate_cost_in_kes(model, input_tokens, output_tokens)
+                except Exception as e:
+                    print(f"Error parsing token cost: {e}")
+            
             worker_responses.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
         else:
             worker_responses.append(ToolMessage(content="Error: Unknown tool.", tool_call_id=tool_call["id"]))
@@ -216,10 +230,7 @@ db_url = os.environ.get("DATABASE_URL")
 if db_url and db_url.startswith("postgresql"):
     # PRODUCTION (Neon)
     print("--- Connecting to PostgreSQL for chat history ---")
-    
     memory_checkpointer = PostgresSaver.from_conn_string(db_url)
-    
-    # We must create all tables *within* the app context
     with app.app_context(), memory_checkpointer as memory_saver:
         print("--- Creating 'users' table (if not exists) ---")
         db.create_all() 
@@ -230,7 +241,6 @@ else:
     # LOCAL DEVELOPMENT (SQLite)
     print("--- Using 'checkpoints.sqlite' for local chat history ---")
     memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
-    # Also create the 'users' table for local dev
     with app.app_context():
         db.create_all()
 
@@ -239,7 +249,7 @@ agent_app = workflow.compile(checkpointer=memory_checkpointer)
 
 def run_agent_workflow(prompt, user_id):
     config = {"configurable": {"thread_id": str(user_id)}}
-    system_message = SystemMessage(content="You are a full-stack expert. Your job is to create a plan and then call your worker tools (`ui_builder_tool`) to execute the plan. When finished, present all the generated code to the user in a single, clean response.")
+    system_message = SystemMessage(content="You are a full-stack expert. Your job is to create a plan and then call your worker tools (`ui_builder_tool`, `web_search_tool`) to execute the plan. When finished, present all the generated code to the user in a single, clean response.")
     final_state = agent_app.invoke(
         {"messages": [system_message, HumanMessage(content=prompt)], "total_cost_kes": Decimal('0.0')}, 
         config=config
@@ -255,9 +265,12 @@ def run_agent_workflow(prompt, user_id):
 def get_task_classification(prompt):
     system_prompt = """
     You are a high-speed task router. Your job is to classify the user's prompt.
-    Does the user want a simple, conversational answer ("simple_chat")?
-    Is it a request to build frontend UI, HTML, CSS, or React ("frontend_task")?
-    Is it a complex, multi-step goal like "build a full app" ("complex_agent_task")?
+    
+    Does the user want a simple, conversational answer? -> "simple_chat"
+    Is it a request to build frontend UI, HTML, CSS, or React? -> "frontend_task"
+    
+    Does the user ask for REAL-TIME info (weather, news, stock prices, sports scores) 
+    OR a complex coding task? -> "complex_agent_task"
     
     Respond with ONLY one phrase: "simple_chat", "frontend_task", or "complex_agent_task".
     """
@@ -268,7 +281,6 @@ def get_task_classification(prompt):
         classification = "complex_agent_task"
     elif "frontend_task" in answer:
         classification = "frontend_task"
-    # --- FIX: Updated model name here too ---
     triage_cost_kes = calculate_cost_in_kes(
         'llama-3.3-70b-versatile', 
         response_data['usage']['input_tokens'], 
@@ -299,7 +311,6 @@ def handle_ask():
         if classification == "simple_chat":
             response_data = call_simple_chat(prompt)
             final_answer = response_data["answer"]
-            # --- FIX: Updated model name ---
             cost_model = 'llama-3.3-70b-versatile'
             input_tokens = response_data['usage']['input_tokens']
             output_tokens = response_data['usage']['output_tokens']
@@ -449,5 +460,4 @@ def pricing_page():
 if __name__ == "__main__":
     # db.create_all() has been moved up to the checkpointing logic
     # so it runs in production
-    # --- FIX: Removed extra ')' ---
     app.run(host='0.0.0.0', port=5000, debug=True)
