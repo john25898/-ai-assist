@@ -179,7 +179,7 @@ workflow.add_edge("tools", "brain")
 db_url = os.environ.get("DATABASE_URL")
 
 # This variable will hold our checkpointer
-memory_checkpointer = None
+memory = None
 
 if db_url and db_url.startswith("postgresql"):
     # PRODUCTION (Neon/Render)
@@ -189,23 +189,23 @@ if db_url and db_url.startswith("postgresql"):
     pool = ConnectionPool(conninfo=db_url, max_size=20, kwargs={"autocommit": True})
     
     # 2. Create the saver
-    memory_checkpointer = PostgresSaver(pool)
+    memory = PostgresSaver(pool)
     
-    # 3. Initialize Tables (FIXED: No 'with memory_checkpointer')
+    # 3. Initialize Tables (FIXED: No 'with memory' context manager on the object itself)
     with app.app_context():
         print("--- Creating user tables ---")
         db.create_all()
         print("--- Creating chat history tables ---")
-        memory_checkpointer.setup()
+        memory.setup() 
         
 else:
     # LOCAL DEVELOPMENT (SQLite)
     print("--- Using SQLite (Local Development) ---")
-    memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
+    memory = SqliteSaver.from_conn_string("checkpoints.sqlite")
     with app.app_context():
         db.create_all()
 
-agent_app = workflow.compile(checkpointer=memory_checkpointer)
+agent_app = workflow.compile(checkpointer=memory)
 
 # ==============================================================================
 # 4. ROUTING & API
@@ -307,6 +307,13 @@ def logout():
     session.clear()
     logout_user()
     return redirect(f"https://{app.config['AUTH0_DOMAIN']}/v2/logout?client_id={app.config['AUTH0_CLIENT_ID']}&returnTo={url_for('index', _external=True)}")
+
+# --- FIX: Added the missing pricing_page route ---
+@app.route('/pricing')
+@login_required
+def pricing_page():
+    return render_template('pricing.html')
+# -------------------------------------------------
 
 if __name__ == "__main__":
     # Local run
