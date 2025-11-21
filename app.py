@@ -34,12 +34,11 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # --- DATABASE STABILITY (USER DB) ---
-# CRITICAL FIX: Reduced pool size to prevent hitting Neon limits
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 300,
-    "pool_size": 2,        # Reduced to 2
-    "max_overflow": 5,     # Reduced to 5
+    "pool_pre_ping": True,  # Ping DB before every query to ensure it's alive
+    "pool_recycle": 300,    # Refresh connections every 5 mins
+    "pool_size": 2,
+    "max_overflow": 5,
 }
 
 # Auth0
@@ -197,7 +196,7 @@ workflow.set_entry_point("brain")
 workflow.add_conditional_edges("brain", should_continue, {"tools": "tools", END: END})
 workflow.add_edge("tools", END)
 
-# --- DATABASE CONNECTION (FIXED: ULTRA-CONSERVATIVE POOL) ---
+# --- DATABASE CONNECTION (BULLETPROOF) ---
 db_url = os.environ.get("DATABASE_URL")
 memory_checkpointer = None
 
@@ -213,14 +212,15 @@ if db_url and db_url.startswith("postgresql"):
         "keepalives_count": 5
     }
     
-    # CRITICAL FIX: Reduce max_size to 1 to avoid hitting Neon limits
+    # CRITICAL FIX: We pass 'check=ConnectionPool.check_connection'
+    # This forces the pool to test the connection before giving it to the app.
     pool = ConnectionPool(
         conninfo=db_url, 
-        min_size=0,       # Don't hold connections if not needed
-        max_size=1,       # Only allow 1 connection per worker for chat history
-        max_lifetime=300, # Refresh every 5 mins
-        max_idle=60,      # Close if idle for 1 min
-        reconnect_timeout=5,
+        min_size=0,       
+        max_size=2,        # Extremely conservative limit
+        max_lifetime=300, 
+        max_idle=60, 
+        check=ConnectionPool.check_connection, # <--- THIS IS THE MAGIC FIX
         kwargs=connection_kwargs
     )
     memory_checkpointer = PostgresSaver(pool)
@@ -252,7 +252,7 @@ def handle_ask():
     router_system = """
     Classify this prompt.
     1. 'simple': Greetings, jokes, definitions.
-    2. 'complex': Requests for code, weather, news, specific people/places, universities, or current events.
+    2. 'complex': Requests for code, weather, news, specific people/places.
     Return ONLY 'simple' or 'complex'.
     """
     try:
@@ -287,15 +287,23 @@ def handle_ask():
             final_answer = result["messages"][-1].content
         except Exception as e:
             print(f"⚠️ Agent failed: {e}")
-            final_answer = "I'm having trouble accessing my memory right now. Please try again in a moment."
+            # If DB fails, fallback to simple chat so user gets an answer
+            try:
+                final_answer = simple_chat(user_prompt) + "\n\n(Note: Memory unavailable temporarily)"
+            except:
+                final_answer = "I'm having trouble right now. Please try again in a moment."
 
-    current_user.credits -= Decimal(cost_estimate)
-    db.session.commit()
+    # --- BILLING (Safe) ---
+    try:
+        current_user.credits -= Decimal(cost_estimate)
+        db.session.commit()
+    except:
+        db.session.rollback()
 
     return jsonify({
         "answer": final_answer,
         "cost": cost_estimate,
-        "remaining": float(current_user.credits)
+        "remaining": float(current_user.credits) if current_user.credits else 0.0
     })
 
 # --- ROUTES ---
