@@ -85,7 +85,7 @@ except Exception as e:
     print(f"CRITICAL: AI Client failed to load. {e}")
 
 # ==============================================================================
-# 2. DEFINE THE TOOLS (FIXED SEARCH)
+# 2. DEFINE THE TOOLS
 # ==============================================================================
 
 @tool
@@ -124,25 +124,23 @@ def web_search_tool(query: str) -> str:
         return "Error: Empty search query."
 
     try:
-        # Attempt 1: Standard Search (Removed 'region' to reduce strictness)
+        # Attempt 1: Standard Search
         results = DDGS().text(query, max_results=4)
         
-        # Check for "Bot Detection" results (Google Chrome / Translate links)
+        # Check for "Bot Detection" results
         is_blocked = False
         if results:
-            # Convert list of dicts to string to check content
             results_str = str(results).lower()
             if "google.com/chrome" in results_str or "google tradutor" in results_str:
                 is_blocked = True
                 print("⚠️ DDG Bot Detection triggered. Retrying with Lite backend...")
 
         # Attempt 2: "Lite" Backend (If blocked or no results)
-        # The 'lite' backend mimics a simpler browser and is harder to block
         if not results or is_blocked:
              try:
                 results = DDGS().text(query, max_results=4, backend="lite")
              except:
-                pass # If lite fails, we stick with whatever we had or empty
+                pass 
 
         if not results:
             return "No search results found."
@@ -150,7 +148,6 @@ def web_search_tool(query: str) -> str:
         # Format results
         response_text = f"Search Results for '{query}':\n\n"
         for r in results:
-            # Use .get() to handle different backend response structures
             title = r.get('title') or r.get('t') or 'No Title'
             link = r.get('href') or r.get('u') or '#'
             body = r.get('body') or r.get('a') or 'No details'
@@ -253,7 +250,7 @@ def handle_ask():
     router_system = """
     Classify this prompt.
     1. 'simple': Greetings, jokes, definitions.
-    2. 'complex': Requests for code, weather, news, specific people (VC, CEO), specific places, or current events.
+    2. 'complex': Requests for code, weather, news, specific people/places, or current events.
     
     IMPORTANT: Questions about Universities, Leaders, or News are ALWAYS 'complex'.
     Return ONLY 'simple' or 'complex'.
@@ -359,12 +356,3 @@ def pricing_page():
 if __name__ == "__main__":
     with app.app_context(): db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
-```
-
-### ## Deploy the Fix
-1.  **Copy** the code above into `app.py`.
-2.  **Push** to GitHub:
-    ```bash
-    git add app.py
-    git commit -m "Fix: Anti-bot detection for web search tool"
-    git push
