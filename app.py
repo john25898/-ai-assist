@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from decimal import Decimal, ROUND_UP
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
@@ -34,13 +35,13 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # --- DATABASE STABILITY (USER DB) ---
-# Increased limits for multi-user support
+# Keep this conservative
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
     "pool_recycle": 300,
-    "pool_size": 5,        # Allowed 5 simultaneous connections per worker
-    "max_overflow": 10,    # Allow 10 extra bursts
-    "pool_timeout": 30     # Wait 30s before giving up
+    "pool_size": 1,
+    "max_overflow": 0,
+    "pool_timeout": 10
 }
 
 # Auth0
@@ -77,15 +78,11 @@ auth0 = oauth.register(
 # ==============================================================================
 
 try:
-    if not os.environ.get('GROQ_API_KEY'):
-        print("❌ CRITICAL ERROR: GROQ_API_KEY is missing!")
-    
     groq_llm = ChatGroq(
         model_name='llama-3.3-70b-versatile', 
         api_key=os.environ.get('GROQ_API_KEY')
     )
     print("✅ Groq AI Client Initialized Successfully")
-
 except Exception as e:
     print(f"CRITICAL: AI Client failed to load. {e}")
 
@@ -95,9 +92,7 @@ except Exception as e:
 
 @tool
 def ui_builder_tool(prompt: str) -> str:
-    """
-    Use this tool to generate HTML, CSS, React, or Frontend code.
-    """
+    """Use this tool to generate HTML, CSS, React, or Frontend code."""
     messages = [
         SystemMessage(content="You are an expert Frontend Developer. Generate clean, modern HTML/Tailwind code. Output ONLY the code."),
         HumanMessage(content=prompt)
@@ -107,9 +102,7 @@ def ui_builder_tool(prompt: str) -> str:
 
 @tool
 def backend_builder_tool(prompt: str) -> str:
-    """
-    Use this tool to generate Python, Flask, SQL, or complex Backend logic.
-    """
+    """Use this tool to generate Python, Flask, SQL, or complex Backend logic."""
     messages = [
         SystemMessage(content="You are a Senior Backend Engineer. Write secure, production-ready Python code."),
         HumanMessage(content=prompt)
@@ -119,40 +112,28 @@ def backend_builder_tool(prompt: str) -> str:
 
 @tool
 def web_search_tool(query: str, **kwargs) -> str:
-    """
-    Use this tool to find real-time information, news, weather, or specific facts.
-    """
+    """Use this tool to find real-time information, news, weather, or specific facts."""
     print(f"🔎 SEARCHING FOR: '{query}'") 
-
-    if not query or len(query.strip()) < 2:
-        return "Error: Empty search query."
+    if not query or len(query.strip()) < 2: return "Error: Empty search query."
 
     try:
         results = DDGS().text(query, max_results=5, backend="lite")
-        if not results:
-             results = DDGS().text(query, max_results=5)
-
-        if not results:
-            return "No search results found."
+        if not results: results = DDGS().text(query, max_results=5)
+        if not results: return "No search results found."
         
         valid_results = []
         for r in results:
             title = r.get('title', '').lower()
-            if "google chrome" in title or "google translate" in title or "browser" in title:
-                continue
+            if "google chrome" in title or "google translate" in title: continue
             valid_results.append(f"Title: {r.get('title')}\nLink: {r.get('href')}\nSnippet: {r.get('body')}\n")
 
-        if not valid_results:
-            return "Search performed, but results were blocked by bot protection."
-
+        if not valid_results: return "Search blocked by bot protection."
         return "\n".join(valid_results)
-
     except Exception as e:
-        print(f"❌ SEARCH ERROR: {e}")
         return f"Search Tool Error: {str(e)}"
 
 # ==============================================================================
-# 3. BUILD THE AGENT GRAPH
+# 3. BUILD THE AGENT GRAPH (TEMPLATE)
 # ==============================================================================
 
 tools = [ui_builder_tool, backend_builder_tool, web_search_tool]
@@ -182,7 +163,6 @@ def tool_node(state):
             if "query" in t["args"]: valid_args["query"] = t["args"]["query"]
             elif "prompt" in t["args"]: valid_args["prompt"] = t["args"]["prompt"]
             else: valid_args = t["args"]
-
             output = selected_tool.invoke(valid_args)
             results.append(ToolMessage(tool_call_id=t['id'], name=t['name'], content=str(output)))
             final_content += str(output) + "\n\n"
@@ -192,8 +172,7 @@ def tool_node(state):
 
 def should_continue(state):
     last_message = state["messages"][-1]
-    if last_message.tool_calls:
-        return "tools"
+    if last_message.tool_calls: return "tools"
     return END
 
 workflow = StateGraph(AgentState)
@@ -203,50 +182,38 @@ workflow.set_entry_point("brain")
 workflow.add_conditional_edges("brain", should_continue, {"tools": "tools", END: END})
 workflow.add_edge("tools", END)
 
-# --- DATABASE CONNECTION (SCALED FOR 4+ USERS) ---
-db_url = os.environ.get("DATABASE_URL")
-memory_checkpointer = None
-
-if db_url and db_url.startswith("postgresql"):
-    print("--- Connecting to PostgreSQL (Production) ---")
-    
-    connection_kwargs = {
-        "autocommit": True,
-        "prepare_threshold": 0,
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5
-    }
-    
-    # PRODUCTION POOL SETTINGS
-    # Increased max_size to 5 to handle concurrent requests without timeout
-    pool = ConnectionPool(
-        conninfo=db_url, 
-        min_size=0,       # Save resources when idle
-        max_size=5,       # Allow 5 concurrent chat ops per worker
-        max_lifetime=300, # Refresh every 5 mins
-        max_idle=60,      
-        check=ConnectionPool.check_connection, # Validate connection before use
-        reconnect_timeout=5,
-        kwargs=connection_kwargs
-    )
-    memory_checkpointer = PostgresSaver(pool)
-    
-    with app.app_context():
-        db.create_all()
-        memory_checkpointer.setup()
-else:
-    print("--- Using SQLite (Local Development) ---")
-    memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
-    with app.app_context():
-        db.create_all()
-
-agent_app = workflow.compile(checkpointer=memory_checkpointer)
-
 # ==============================================================================
-# 4. ROUTING & API
+# 4. DATABASE & APP LOGIC (SAFE CONNECTION HANDLING)
 # ==============================================================================
+
+def get_checkpointer():
+    """
+    Creates a FRESH, temporary connection pool for a single request.
+    This prevents connection hoarding.
+    """
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url and db_url.startswith("postgresql"):
+        # Create a transient pool (min_size=0, closes immediately)
+        pool = ConnectionPool(
+            conninfo=db_url, 
+            min_size=0, 
+            max_size=1, 
+            kwargs={"autocommit": True}
+        )
+        return PostgresSaver(pool), pool
+    else:
+        # Local fallback
+        return SqliteSaver.from_conn_string("checkpoints.sqlite"), None
+
+def init_db():
+    """Run once on startup to ensure tables exist"""
+    saver, pool = get_checkpointer()
+    try:
+        with app.app_context():
+            db.create_all()
+            if hasattr(saver, 'setup'): saver.setup()
+    finally:
+        if pool: pool.close() # Close immediately
 
 def simple_chat(prompt):
     return groq_llm.invoke([HumanMessage(content=prompt)]).content
@@ -257,15 +224,10 @@ def handle_ask():
     user_prompt = request.json.get("prompt")
     user_id = current_user.auth0_id
     
-    router_system = """
-    Classify this prompt.
-    1. 'simple': Greetings, jokes, definitions.
-    2. 'complex': Requests for code, weather, news, specific people/places.
-    Return ONLY 'simple' or 'complex'.
-    """
+    # 1. ROUTING
     try:
         classification = groq_llm.invoke([
-            SystemMessage(content=router_system), 
+            SystemMessage(content="Classify as 'simple' (jokes, greetings) or 'complex' (code, news, people). Return ONLY one word."), 
             HumanMessage(content=user_prompt)
         ]).content.strip().lower()
     except:
@@ -274,29 +236,38 @@ def handle_ask():
     final_answer = ""
     cost_estimate = 0.0
 
+    # 2. EXECUTION
     if "simple" in classification:
         final_answer = simple_chat(user_prompt)
     else:
-        config = {"configurable": {"thread_id": user_id}}
-        config["recursion_limit"] = 50
-        
-        agent_system_message = SystemMessage(content="""
-        You are a helpful AI assistant.
-        RULES:
-        1. If asked about specific people, leaders, or current events, YOU MUST USE 'web_search_tool'.
-        2. Do not say "I don't know". Use the tool.
-        """)
-
+        # Use Transient Checkpointer for safety
+        saver, pool = get_checkpointer()
         try:
-            result = agent_app.invoke(
+            config = {"configurable": {"thread_id": user_id}, "recursion_limit": 50}
+            
+            agent_system_message = SystemMessage(content="""
+            You are a helpful AI assistant.
+            RULES:
+            1. If asked about people/news, USE 'web_search_tool'.
+            2. Don't guess. Search.
+            """)
+            
+            # Compile graph with this specific saver
+            app_workflow = workflow.compile(checkpointer=saver)
+            
+            result = app_workflow.invoke(
                 {"messages": [agent_system_message, HumanMessage(content=user_prompt)]}, 
                 config=config
             )
             final_answer = result["messages"][-1].content
         except Exception as e:
-            print(f"⚠️ Agent failed: {e}")
-            final_answer = "I'm having trouble connecting. Please try again in a moment."
+            print(f"⚠️ Agent Error: {e}")
+            final_answer = "I encountered an error connecting to my memory. Please try again."
+        finally:
+            # CRITICAL: Close the connection pool immediately!
+            if pool: pool.close()
 
+    # 3. BILLING
     try:
         current_user.credits -= Decimal(cost_estimate)
         db.session.commit()
@@ -339,7 +310,6 @@ def callback():
             return redirect(url_for('index'))
 
         user = User.query.filter_by(auth0_id=auth0_id).first()
-        
         if not user:
             user = User.query.filter_by(email=email).first()
             if user:
@@ -353,7 +323,7 @@ def callback():
         login_user(user, remember=True)
         return redirect(url_for('chat_interface'))
     except Exception as e:
-        print(f"Error during callback: {e}")
+        print(f"Callback Error: {e}")
         db.session.rollback()
         return redirect(url_for('index'))
 
@@ -369,5 +339,5 @@ def pricing_page():
     return render_template('pricing.html')
 
 if __name__ == "__main__":
-    with app.app_context(): db.create_all()
+    init_db() # Run table creation once
     app.run(host='0.0.0.0', port=5000, debug=True)
