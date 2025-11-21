@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, f
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 
-# --- AI IMPORTS (Only Groq) ---
+# --- AI IMPORTS (GROQ ONLY) ---
 from langchain_groq import ChatGroq
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
@@ -33,7 +33,7 @@ app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-# --- DATABASE STABILITY SETTINGS ---
+# --- DATABASE STABILITY ---
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
     "pool_recycle": 300,
@@ -75,7 +75,7 @@ auth0 = oauth.register(
 # ==============================================================================
 
 try:
-    # Use Groq Llama 3.3 for EVERYTHING (Brain, Tools, Chat)
+    # We use one powerful, free model for EVERYTHING.
     groq_llm = ChatGroq(
         model_name='llama-3.3-70b-versatile', 
         api_key=os.environ.get('GROQ_API_KEY')
@@ -209,7 +209,7 @@ agent_app = workflow.compile(checkpointer=memory_checkpointer)
 # ==============================================================================
 
 def simple_chat(prompt):
-    """Direct chat with Groq (Fast/Free)"""
+    """Direct chat with Groq"""
     return groq_llm.invoke([HumanMessage(content=prompt)]).content
 
 @app.route("/api/ask", methods=["POST"])
@@ -218,11 +218,22 @@ def handle_ask():
     user_prompt = request.json.get("prompt")
     user_id = current_user.auth0_id
     
-    # --- STEP 1: ROUTING ---
+    # --- STEP 1: ROUTING (IMPROVED) ---
+    # This prompt forces the model to use the Agent (and thus Search) for specific entities.
     router_system = """
     Classify this prompt.
-    1. 'simple': Greetings, jokes, definitions, general knowledge.
-    2. 'complex': Requests for code, weather, news, analysis, or multi-step tasks.
+    
+    1. 'simple': 
+       - Greetings ("Hi", "Hello")
+       - Static definitions ("What is a verb?")
+       - Jokes
+       - Basic math
+       
+    2. 'complex': 
+       - ANY question about specific people, companies, universities, or places (e.g. "Who is the VC of...", "Where is...").
+       - Questions asking "Who is...", "What is the current...", "Latest news".
+       - Requests for code, weather, or analysis.
+    
     Return ONLY 'simple' or 'complex'.
     """
     try:
@@ -234,6 +245,7 @@ def handle_ask():
         classification = 'complex' 
 
     final_answer = ""
+    # Groq is free
     cost_estimate = 0.0
 
     # --- STEP 2: EXECUTION ---
@@ -250,10 +262,7 @@ def handle_ask():
         )
         final_answer = result["messages"][-1].content
 
-    # --- STEP 3: BILLING (Free for now) ---
-    if current_user.get_credit_balance() < Decimal(cost_estimate):
-         return jsonify({"error": "Insufficient credits"}), 402
-         
+    # --- STEP 3: BILLING ---
     current_user.credits -= Decimal(cost_estimate)
     db.session.commit()
 
