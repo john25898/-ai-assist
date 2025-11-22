@@ -11,8 +11,10 @@ from langchain_groq import ChatGroq
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage, BaseMessage
-# FIX: Import Pydantic to enforce strict tool schemas (fixes 400 error)
-from langchain_core.pydantic_v1 import BaseModel, Field
+
+# --- FIX: Import directly from Pydantic (Solves ModuleNotFoundError) ---
+from pydantic import BaseModel, Field
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -81,7 +83,6 @@ try:
     if not os.environ.get('GROQ_API_KEY'):
         print("❌ CRITICAL: GROQ_API_KEY is missing")
     
-    # Using Llama 3.3 with temperature=0 for maximum strictness
     groq_llm = ChatGroq(
         model_name='llama-3.3-70b-versatile', 
         api_key=os.environ.get('GROQ_API_KEY'),
@@ -93,15 +94,14 @@ except Exception as e:
     print(f"CRITICAL: AI Client failed to load. {e}")
 
 # ==============================================================================
-# 2. DEFINE TOOLS WITH STRICT SCHEMAS (The Fix for 400 Errors)
+# 2. DEFINE TOOLS WITH STRICT SCHEMAS
 # ==============================================================================
 
-# Define strict input schemas so the model knows EXACTLY what to send
 class CodeInput(BaseModel):
     prompt: str = Field(description="Detailed description of the code to build.")
 
 class SearchInput(BaseModel):
-    query: str = Field(description="The search query string. e.g., 'Vice Chancellor of Meru University'")
+    query: str = Field(description="The search query string.")
 
 @tool(args_schema=CodeInput)
 def ui_builder_tool(prompt: str) -> str:
@@ -179,7 +179,6 @@ def tool_node(state):
         
         if selected_tool:
             try:
-                # Pydantic validation happens here automatically
                 output = selected_tool.invoke(t["args"])
             except Exception as e:
                 output = f"Tool Error: {str(e)}"
@@ -212,9 +211,9 @@ else:
     print("--- Using SQLite (Local) ---")
     memory_checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
 
-# Safe compilation logic
+# Compile graph
 if hasattr(memory_checkpointer, 'setup'):
-    pass # Defer setup to runtime
+    pass
 
 agent_app = workflow.compile(checkpointer=memory_checkpointer)
 
@@ -253,7 +252,7 @@ def handle_ask():
         RULES:
         1. Use 'web_search_tool' for people, news, or facts.
         2. Use 'ui_builder_tool' or 'backend_builder_tool' for coding.
-        3. When calling tools, use strict JSON format: {"query": "your search"} or {"prompt": "your prompt"}.
+        3. When calling tools, use JSON format.
         """)
 
         try:
@@ -311,18 +310,16 @@ def callback():
         user = User.query.filter_by(auth0_id=auth0_id).first()
         if not user:
             user = User.query.filter_by(email=email).first()
-            if user:
+            if user: 
                 user.auth0_id = auth0_id
-                db.session.commit()
             else:
                 user = User(auth0_id=auth0_id, email=email, credits=Decimal('50.0'))
                 db.session.add(user)
-                db.session.commit()
+            db.session.commit()
         
         login_user(user, remember=True)
         return redirect(url_for('chat_interface'))
-    except Exception as e:
-        db.session.rollback()
+    except:
         return redirect(url_for('index'))
 
 @app.route('/logout')
