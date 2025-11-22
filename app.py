@@ -1,6 +1,5 @@
 import os
-import re
-from decimal import Decimal, ROUND_UP
+from decimal import Decimal
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -8,10 +7,14 @@ from authlib.integrations.flask_client import OAuth
 
 # --- AI IMPORTS ---
 from langchain_groq import ChatGroq
+# Tavily Search Tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage, BaseMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
+
+# --- CRITICAL FIX: Import directly from Pydantic ---
+from pydantic import BaseModel, Field
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -34,8 +37,7 @@ app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-# --- DATABASE STABILITY (For User Login) ---
-# We keep this pool very small for login checks
+# --- DATABASE STABILITY (User DB) ---
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
     "pool_recycle": 300,
@@ -207,7 +209,6 @@ def get_transient_checkpointer():
     """
     db_url = os.environ.get("DATABASE_URL")
     if db_url and db_url.startswith("postgresql"):
-        # Pool size 1 means we grab one connection, use it, and drop it.
         pool = ConnectionPool(
             conninfo=db_url,
             min_size=0,
@@ -226,7 +227,6 @@ def init_tables():
     try:
         with app.app_context():
             db.create_all()
-            # If it's a PostgresSaver, run setup
             if hasattr(saver, 'setup'):
                 saver.setup()
     except Exception as e:
@@ -270,7 +270,7 @@ def handle_ask():
         RULES:
         1. Use 'web_search_tool' for people, news, or facts.
         2. Use 'ui_builder_tool' or 'backend_builder_tool' for coding.
-        3. Call tools with {"query": "..."} or {"prompt": "..."}.
+        3. When calling tools, use JSON format.
         """)
 
         # --- TRANSIENT EXECUTION ---
@@ -280,10 +280,10 @@ def handle_ask():
             checkpointer, pool = get_transient_checkpointer()
             
             # 2. Compile graph with this specific connection
-            app_instance = workflow.compile(checkpointer=checkpointer)
-            
+            app_with_db = workflow.compile(checkpointer=checkpointer)
+
             # 3. Run Agent
-            result = app_instance.invoke(
+            result = app_with_db.invoke(
                 {"messages": [agent_sys, HumanMessage(content=user_prompt)]}, 
                 config=config
             )
@@ -339,13 +339,12 @@ def callback():
         user = User.query.filter_by(auth0_id=auth0_id).first()
         if not user:
             user = User.query.filter_by(email=email).first()
-            if user:
+            if user: 
                 user.auth0_id = auth0_id
-                db.session.commit()
             else:
                 user = User(auth0_id=auth0_id, email=email, credits=Decimal('50.0'))
                 db.session.add(user)
-                db.session.commit()
+            db.session.commit()
         
         login_user(user, remember=True)
         return redirect(url_for('chat_interface'))
