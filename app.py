@@ -1,20 +1,18 @@
 import os
-from decimal import Decimal
+import re
+from decimal import Decimal, ROUND_UP
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
+from sqlalchemy import create_engine, text # Added for Distributed DB
 
 # --- AI IMPORTS ---
 from langchain_groq import ChatGroq
-# Tavily Search Tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage, BaseMessage
-
-# --- CRITICAL FIX: Import directly from Pydantic ---
-from pydantic import BaseModel, Field
-
+from langchain_core.pydantic_v1 import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -52,6 +50,54 @@ app.config['AUTH0_CLIENT_SECRET'] = os.environ.get('AUTH0_CLIENT_SECRET')
 app.config['AUTH0_DOMAIN'] = os.environ.get('AUTH0_DOMAIN')
 
 db.init_app(app)
+
+# --- DISTRIBUTED DATABASE SETUP (ASSIGNMENT LOGIC) ---
+# Node A is managed by 'db' (SQLAlchemy). 
+# Node B is managed manually here.
+node_b_url = os.environ.get('DATABASE_URL_NODE_B')
+engine_node_b = create_engine(node_b_url) if node_b_url else None
+
+def save_distributed_log(user_id, activity):
+    """
+    Routes data to physically different servers based on User ID (Sharding).
+    """
+    try:
+        # 1. The Router: Decide destination based on User ID (Even/Odd)
+        if user_id % 2 == 0:
+            target_engine = db.engine # Node A (Primary)
+            server_name = "Node A (Primary)"
+        else:
+            # If Node B is configured, use it. Otherwise fallback to A.
+            if engine_node_b:
+                target_engine = engine_node_b
+                server_name = "Node B (Secondary)"
+            else:
+                target_engine = db.engine
+                server_name = "Node A (Fallback - Node B Missing)"
+
+        # 2. The Distributed Write
+        with target_engine.connect() as conn:
+            # Create table if missing (Safety)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS distributed_activity_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    activity TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            
+            # Insert Log
+            conn.execute(
+                text("INSERT INTO distributed_activity_logs (user_id, activity) VALUES (:uid, :act)"),
+                {"uid": user_id, "act": activity}
+            )
+            conn.commit()
+            
+        print(f"✅ [Distributed System] Routed User {user_id} to {server_name}")
+
+    except Exception as e:
+        print(f"❌ Distributed Log Error: {e}")
 
 # --- LOGIN MANAGER ---
 login_manager = LoginManager()
@@ -262,6 +308,8 @@ def handle_ask():
 
     if "simple" in classification:
         final_answer = simple_chat(user_prompt)
+        # Log simple chats too
+        save_distributed_log(current_user.id, f"Simple: {user_prompt}")
     else:
         config = {"configurable": {"thread_id": user_id}, "recursion_limit": 50}
         
@@ -289,11 +337,14 @@ def handle_ask():
             )
             final_answer = result["messages"][-1].content
             
+            # 4. DISTRIBUTED LOGGING (Assignment Requirement)
+            save_distributed_log(current_user.id, f"Complex: {user_prompt}")
+            
         except Exception as e:
             print(f"⚠️ Agent Error: {e}")
             final_answer = f"I encountered an error: {str(e)}"
         finally:
-            # 4. Close connection immediately to free up the slot
+            # 5. Close connection immediately to free up the slot
             if pool: pool.close()
 
     # Billing
