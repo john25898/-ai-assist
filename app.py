@@ -1,18 +1,20 @@
 import os
-import re
-from decimal import Decimal, ROUND_UP
+from decimal import Decimal
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
-from sqlalchemy import create_engine, text  # Required for Distributed DB
 
 # --- AI IMPORTS ---
 from langchain_groq import ChatGroq
+# Tavily Search Tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage, BaseMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
+
+# --- CRITICAL FIX: Import directly from Pydantic ---
+from pydantic import BaseModel, Field
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -50,58 +52,6 @@ app.config['AUTH0_CLIENT_SECRET'] = os.environ.get('AUTH0_CLIENT_SECRET')
 app.config['AUTH0_DOMAIN'] = os.environ.get('AUTH0_DOMAIN')
 
 db.init_app(app)
-
-# --- DISTRIBUTED DATABASE SETUP (ASSIGNMENT LOGIC) ---
-# We check if a second node is configured. If not, we fallback to the primary.
-node_b_url = os.environ.get('DATABASE_URL_NODE_B')
-# We create a separate engine for Node B to ensure physical separation
-engine_node_b = create_engine(node_b_url) if node_b_url else None
-
-def save_distributed_log(user_id, activity):
-    """
-    Routes data to physically different servers based on User ID (Sharding).
-    This runs BEFORE the AI thinks, ensuring the log is always captured.
-    """
-    print(f"🔄 [Distributed] Attempting to route User ID: {user_id}")
-    try:
-        # 1. The Router: Decide destination based on User ID (Even/Odd)
-        if user_id % 2 == 0:
-            target_engine = db.engine # Node A (Primary)
-            server_name = "Node A (Primary - Even ID)"
-        else:
-            # If Node B is configured, use it. Otherwise fallback to A.
-            if engine_node_b:
-                target_engine = engine_node_b
-                server_name = "Node B (Secondary - Odd ID)"
-            else:
-                target_engine = db.engine
-                server_name = "Node A (Fallback - Node B Missing)"
-
-        # 2. The Write Operation
-        with target_engine.connect() as conn:
-            # Ensure table exists (Idempotent / Safe to run multiple times)
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS distributed_activity_logs (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER,
-                    activity TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            
-            # Insert Log
-            conn.execute(
-                text("INSERT INTO distributed_activity_logs (user_id, activity) VALUES (:uid, :act)"),
-                {"uid": user_id, "act": activity}
-            )
-            conn.commit()
-            
-        print(f"✅ [Distributed Success] Data written to {server_name}")
-        return True
-
-    except Exception as e:
-        print(f"❌ [Distributed Fail] Could not write log: {e}")
-        return False
 
 # --- LOGIN MANAGER ---
 login_manager = LoginManager()
@@ -297,11 +247,7 @@ def handle_ask():
     user_prompt = request.json.get("prompt")
     user_id = current_user.auth0_id
     
-    # --- STEP 1: LOG TO DISTRIBUTED DB (Assignment Priority) ---
-    # We log BEFORE doing anything else. Even if the AI fails, this log is saved.
-    save_distributed_log(current_user.id, user_prompt)
-
-    # --- STEP 2: ROUTING ---
+    # Routing
     try:
         router_sys = "Classify: 1. 'simple' (jokes, greetings). 2. 'complex' (search, code, facts). Return ONLY 'simple' or 'complex'."
         classification = groq_llm.invoke([
@@ -314,7 +260,6 @@ def handle_ask():
     final_answer = ""
     cost = 0.5
 
-    # --- STEP 3: EXECUTION ---
     if "simple" in classification:
         final_answer = simple_chat(user_prompt)
     else:
@@ -331,13 +276,13 @@ def handle_ask():
         # --- TRANSIENT EXECUTION ---
         pool = None
         try:
-            # Open fresh connection
+            # 1. Open fresh connection
             checkpointer, pool = get_transient_checkpointer()
             
-            # Compile graph
+            # 2. Compile graph with this specific connection
             app_with_db = workflow.compile(checkpointer=checkpointer)
 
-            # Run Agent
+            # 3. Run Agent
             result = app_with_db.invoke(
                 {"messages": [agent_sys, HumanMessage(content=user_prompt)]}, 
                 config=config
@@ -348,10 +293,10 @@ def handle_ask():
             print(f"⚠️ Agent Error: {e}")
             final_answer = f"I encountered an error: {str(e)}"
         finally:
-            # Close connection immediately
+            # 4. Close connection immediately to free up the slot
             if pool: pool.close()
 
-    # --- STEP 4: BILLING ---
+    # Billing
     try:
         current_user.credits -= Decimal(cost)
         db.session.commit()
@@ -419,5 +364,5 @@ def pricing_page():
     return render_template('pricing.html')
 
 if __name__ == "__main__":
-    with app.app_context(): db.create_all()
+    init_tables() # Safe table creation
     app.run(host='0.0.0.0', port=5000, debug=True)
