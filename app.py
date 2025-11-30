@@ -1,9 +1,11 @@
 import os
-from decimal import Decimal
+import re
+from decimal import Decimal, ROUND_UP
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
+from sqlalchemy import create_engine, text # <--- ADDED FOR DISTRIBUTED DB
 
 # --- AI IMPORTS ---
 from langchain_groq import ChatGroq
@@ -52,6 +54,56 @@ app.config['AUTH0_CLIENT_SECRET'] = os.environ.get('AUTH0_CLIENT_SECRET')
 app.config['AUTH0_DOMAIN'] = os.environ.get('AUTH0_DOMAIN')
 
 db.init_app(app)
+
+# --- DISTRIBUTED DB ROUTER (ASSIGNMENT LOGIC) ---
+# This sets up the connection to the SECOND database (Node B)
+node_b_url = os.environ.get('DATABASE_URL_NODE_B')
+engine_node_b = create_engine(node_b_url) if node_b_url else None
+
+def save_distributed_log(user_id, activity):
+    """
+    Routes data to physically different servers based on User ID.
+    This runs BEFORE the AI thinks, ensuring the log is always captured.
+    """
+    print(f"🔄 [Distributed] Attempting to route User ID: {user_id}")
+    try:
+        # 1. The Router: Decide destination based on User ID (Even/Odd)
+        if user_id % 2 == 0:
+            target_engine = db.engine # Node A (Primary)
+            server_name = "Node A (Primary - Even ID)"
+        else:
+            if engine_node_b:
+                target_engine = engine_node_b
+                server_name = "Node B (Secondary - Odd ID)"
+            else:
+                target_engine = db.engine
+                server_name = "Node A (Fallback - Node B Missing)"
+
+        # 2. The Write Operation
+        with target_engine.connect() as conn:
+            # Ensure table exists
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS distributed_activity_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    activity TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            
+            # Insert Log
+            conn.execute(
+                text("INSERT INTO distributed_activity_logs (user_id, activity) VALUES (:uid, :act)"),
+                {"uid": user_id, "act": activity}
+            )
+            conn.commit()
+            
+        print(f"✅ [Distributed Success] Data written to {server_name}")
+        return True
+
+    except Exception as e:
+        print(f"❌ [Distributed Fail] Could not write log: {e}")
+        return False
 
 # --- LOGIN MANAGER ---
 login_manager = LoginManager()
@@ -246,6 +298,10 @@ def simple_chat(prompt):
 def handle_ask():
     user_prompt = request.json.get("prompt")
     user_id = current_user.auth0_id
+    
+    # --- STEP 1: DISTRIBUTED LOGGING (The "Log First" Fix) ---
+    # We run this immediately so the assignment proof is saved before AI starts.
+    save_distributed_log(current_user.id, user_prompt)
     
     # Routing
     try:
